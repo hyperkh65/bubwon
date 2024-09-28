@@ -12,11 +12,20 @@ import numpy as np
 import re
 from datetime import datetime
 
-# WebDriver 초기 설정
+# WebDriver 초기 설정 (headless 모드 추가)
 def setup_webdriver():
     try:
+        # Chrome 옵션 설정
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")  # Headless 모드
+        chrome_options.add_argument("--no-sandbox")  # 샌드박스 모드 비활성화
+        chrome_options.add_argument("--disable-dev-shm-usage")  # /dev/shm 사용 비활성화
+        chrome_options.add_argument("--disable-gpu")  # GPU 비활성화 (선택적)
+        chrome_options.add_argument("--window-size=1920x1080")  # 창 크기 설정 (선택적)
+
+        # WebDriver 설정
         service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.implicitly_wait(10)  # 모든 요소를 찾을 때 최대 대기 시간 설정
         return driver
     except Exception as e:
@@ -127,97 +136,107 @@ def clean_table_data(auction_item):
         auction_item.columns = col_list
         for col in col_list:
             auction_item[col] = auction_item[col].str.replace('\t', '').apply(lambda x: re.sub(r"\n+", "\n", x))
-
-        auction_item['법원'] = auction_item['사건번호'].str.split('\n').str[1]
-        auction_item['사건번호'] = auction_item['사건번호'].str.split('\n').str[2]
-        auction_item['용도'] = auction_item['물건번호'].str.split('\n').str[2]
-        auction_item['물건번호'] = auction_item['물건번호'].str.split('\n').str[1]
-        auction_item['내역'] = auction_item['소재지'].str.split('\n').str[2:].str.join(' ')
-        auction_item['소재지'] = auction_item['소재지'].str.split('\n').str[1]
-        auction_item['비고'] = auction_item['비고'].str.split('\n').str[1]
-        auction_item['최저가격'] = auction_item['감정평가액'].str.split('\n').str[2]
-        auction_item['최저비율'] = auction_item['감정평가액'].str.split('\n').str[3].str[1:-1]
-        auction_item['감정평가액'] = auction_item['감정평가액'].str.split('\n').str[1]
-        auction_item['유찰횟수'] = auction_item['날짜'].str.split('\n').str[3].str.strip()
-        auction_item['유찰횟수'] = np.where(auction_item['유찰횟수'].str.len() == 0, '0회', auction_item['유찰횟수'].str.slice(start=2))
-        auction_item['날짜'] = auction_item['날짜'].str.split('\n').str[2]
-
-        auction_item = auction_item[['날짜', '법원', '사건번호', '물건번호', '용도', '감정평가액', '최저가격', '최저비율', '유찰횟수', '소재지', '내역', '비고']]
-        auction_item = auction_item[~auction_item['비고'].str.contains('지분매각')].reset_index(drop=True)
-        return auction_item
-    except Exception as e:
-        st.error(f"데이터 정리 중 오류 발생: {e}")
-        return auction_item
-
-# URL 인코딩
-def encode_to_euc_kr_url(korean_text):
-    euc_kr_encoded = korean_text.encode('euc-kr')
-    return urllib.parse.quote(euc_kr_encoded)
-
-# 각 행에 대해 URL 생성
-def create_url(row):
-    court_name_encoded = encode_to_euc_kr_url(row["법원"])
-    sa_year, sa_ser = row["사건번호"].split("타경")
-    url = f"https://www.courtauction.go.kr/RetrieveRealEstDetailInqSaList.laf?jiwonNm={court_name_encoded}&saYear={sa_year}&saSer={sa_ser}&_CUR_CMD=InitMulSrch.laf&_SRCH_SRNID=PNO102014&_NEXT_CMD=RetrieveRealEstDetailInqSaList.laf"
-    return url
-
-# 메인 함수
-def main(input_data, building_codes):
-    driver = setup_webdriver()
-    if driver:
-        navigate_to_search_page(driver)
-        set_search_criteria(driver, input_data, building_codes)
-        change_items_per_page(driver)
-        auction_item = pd.DataFrame()
-        auction_item = navigate_pages(driver, auction_item)
-        auction_item = clean_table_data(auction_item)
-        auction_item["URL"] = auction_item.apply(create_url, axis=1)
-        driver.quit()
-        return auction_item
-    else:
-        return pd.DataFrame()
-
-# Streamlit UI 설정
-st.title('법원 경매 검색')
-
-# 입력 폼
-with st.form(key='search_form'):
-    jiwon = st.selectbox('지원', ['서울중앙지방법원', '서울동부지방법원', '서울서부지방법원'])
-    building = st.selectbox('건물 유형', [
-        "단독주택", "다가구주택", "다중주택", "아파트", 
-        "연립주택", "다세대주택", "기숙사", "빌라", 
-        "상가주택", "오피스텔", "주상복합"
-    ])
-    start_date = st.date_input('시작 날짜', value=datetime.today())
-    end_date = st.date_input('종료 날짜', value=datetime.today())
-    submit_button = st.form_submit_button(label='검색')
-
-# 검색 버튼 클릭 시
-if submit_button:
-    input_data = {
-        'jiwon': jiwon,
-        'building': building,
-        'start_date': start_date.strftime('%Y.%m.%d'),
-        'end_date': end_date.strftime('%Y.%m.%d')
-    }
-
-    building_codes = {
-        "단독주택": "00008020101",
-        "다가구주택": "00008020102",
-        "다중주택": "00008020103",
-        "아파트": "00008020104",
-        "연립주택": "00008020105",
-        "다세대주택": "00008020106",
-        "기숙사": "00008020107",
-        "빌라": "00008020108",
-        "상가주택": "00008020109",
-        "오피스텔": "00008020110",
-        "주상복합": "00008020111"
-    }
-
-    # 경매 데이터 수집
-    auction_data = main(input_data, building_codes)
-    if not auction_data.empty:
-        st.dataframe(auction_data)
-    else:
-        st.warning("검색 결과가 없습니다.")
+            auction_item['법원'] = auction_item['사건번호'].str.split('\n').str[1]
+            auction_item['사건번호'] = auction_item['사건번호'].str.split('\n').str[2]
+            auction_item['용도'] = auction_item['물건번호'].str.split('\n').str[2]
+            auction_item['물건번호'] = auction_item['물건번호'].str.split('\n').str[1]
+            auction_item['내역'] = auction_item['소재지'].str.split('\n').str[2:].str.join(' ')
+            auction_item['소재지'] = auction_item['소재지'].str.split('\n').str[1]
+            auction_item['비고'] = auction_item['비고'].str.split('\n').str[1]
+            auction_item['최저가격'] = auction_item['감정평가액'].str.split('\n').str[2]
+            auction_item['최저비율'] = auction_item['감정평가액'].str.split('\n').str[3].str[1:-1]
+            auction_item['감정평가액'] = auction_item['감정평가액'].str.split('\n').str[1]
+            auction_item['유찰횟수'] = auction_item['날짜'].str.split('\n').str[3].str.strip()
+            auction_item['유찰횟수'] = np.where(auction_item['유찰횟수'].str.len() == 0, '0회', auction_item['유찰횟수'].str.slice(start=2
+                    auction_item['유찰횟수'] = np.where(auction_item['유찰횟수'].str.len() == 0, '0회', auction_item['유찰횟수'].str.slice(start=2))
+            auction_item['날짜'] = auction_item['날짜'].str.split('\n').str[2]
+    
+            auction_item = auction_item[['날짜', '법원', '사건번호', '물건번호', '용도', '감정평가액', '최저가격', '최저비율', '유찰횟수', '소재지', '내역', '비고']]
+            auction_item = auction_item[~auction_item['비고'].str.contains('지분매각')].reset_index(drop=True)
+            return auction_item
+        except Exception as e:
+            st.error(f"데이터 정리 중 오류 발생: {e}")
+            return auction_item
+    
+    # URL 인코딩
+    def encode_to_euc_kr_url(korean_text):
+        try:
+            euc_kr_encoded = korean_text.encode('euc-kr')
+            return urllib.parse.quote(euc_kr_encoded)
+        except Exception as e:
+            st.error(f"URL 인코딩 오류: {e}")
+            return ""
+    
+    # 각 행에 대해 URL 생성
+    def create_url(row):
+        try:
+            court_name_encoded = encode_to_euc_kr_url(row["법원"])
+            sa_year, sa_ser = row["사건번호"].split("타경")
+            url = f"https://www.courtauction.go.kr/RetrieveRealEstDetailInqSaList.laf?jiwonNm={court_name_encoded}&saYear={sa_year}&saSer={sa_ser}&_CUR_CMD=InitMulSrch.laf&_SRCH_SRNID=PNO102014&_NEXT_CMD=RetrieveRealEstDetailInqSaList.laf"
+            return url
+        except Exception as e:
+            st.error(f"URL 생성 오류: {e}")
+            return ""
+    
+    # 메인 함수
+    def main(input_data, building_codes):
+        driver = setup_webdriver()
+        if driver:
+            navigate_to_search_page(driver)
+            set_search_criteria(driver, input_data, building_codes)
+            change_items_per_page(driver)
+            auction_item = pd.DataFrame()
+            auction_item = navigate_pages(driver, auction_item)
+            auction_item = clean_table_data(auction_item)
+            auction_item["URL"] = auction_item.apply(create_url, axis=1)
+            driver.quit()
+            return auction_item
+        else:
+            return pd.DataFrame()
+    
+    # Streamlit UI 설정
+    st.title('법원 경매 검색')
+    
+    # 입력 폼
+    with st.form(key='search_form'):
+        jiwon = st.selectbox('지원', [
+            '서울중앙지방법원', '서울동부지방법원', '서울서부지방법원'
+        ])
+        building = st.selectbox('건물 유형', [
+            "단독주택", "다가구주택", "다중주택", "아파트", 
+            "연립주택", "다세대주택", "기숙사", "빌라", 
+            "상가주택", "오피스텔", "주상복합"
+        ])
+        start_date = st.date_input('시작 날짜', value=datetime.today())
+        end_date = st.date_input('종료 날짜', value=datetime.today())
+        submit_button = st.form_submit_button(label='검색')
+    
+    # 검색 버튼 클릭 시
+    if submit_button:
+        input_data = {
+            'jiwon': jiwon,
+            'building': building,
+            'start_date': start_date.strftime('%Y.%m.%d'),
+            'end_date': end_date.strftime('%Y.%m.%d')
+        }
+    
+        building_codes = {
+            "단독주택": "00008020101",
+            "다가구주택": "00008020102",
+            "다중주택": "00008020103",
+            "아파트": "00008020104",
+            "연립주택": "00008020105",
+            "다세대주택": "00008020106",
+            "기숙사": "00008020107",
+            "빌라": "00008020108",
+            "상가주택": "00008020109",
+            "오피스텔": "00008020110",
+            "주상복합": "00008020111"
+        }
+    
+        # 경매 데이터 수집
+        auction_data = main(input_data, building_codes)
+        if not auction_data.empty:
+            st.dataframe(auction_data)
+        else:
+            st.warning("검색 결과가 없습니다.")
