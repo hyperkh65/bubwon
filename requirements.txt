@@ -1,6 +1,6 @@
-streamlit==1.26.0
-selenium==4.10.0
-webdriver-manager==3.8.6
-beautifulsoup4==4.12.2
-pandas==1.5.3
-numpy==1.24.3
+streamlit
+selenium
+webdriver-manager
+beautifulsoup4
+pandas
+numpy
