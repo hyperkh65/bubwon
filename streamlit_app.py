@@ -24,7 +24,7 @@ def setup_webdriver():
         chrome_options.add_argument("--disable-gpu")  # GPU 비활성화 (선택적)
         chrome_options.add_argument("--window-size=1920x1080")  # 창 크기 설정 (선택적)
 
-        # WebDriver 설정
+        # WebDriver 설정 - ChromeDriverManager로 최신 버전 자동 설치
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.implicitly_wait(10)  # 모든 요소를 찾을 때 최대 대기 시간 설정
@@ -173,71 +173,42 @@ def create_url(row):
     try:
         court_name_encoded = encode_to_euc_kr_url(row["법원"])
         sa_year, sa_ser = row["사건번호"].split("타경")
-        url = f"https://www.courtauction.go.kr/RetrieveRealEstDetailInqSaList.laf?jiwonNm={court_name_encoded}&saYear={sa_year}&saSer={sa_ser}&_CUR_CMD=InitMulSrch.laf&_SRCH_SRNID=PNO102014&_NEXT_CMD=RetrieveRealEstDetailInqSaList.laf"
+        url = f"https://www.courtauction.go.kr/RetrieveRealEstDetailInqSaList.laf?jiwonNm={court_name_encoded}&saYear={sa_year}&saSer={sa_ser}&_CUR_CMD=InitMulSrch.laf&_SRCH_SRNID=PNO102020"
         return url
     except Exception as e:
         st.error(f"URL 생성 오류: {e}")
         return ""
 
-# 메인 함수
-def main(input_data, building_codes):
-    driver = setup_webdriver()
-    if driver:
-        navigate_to_search_page(driver)
-        set_search_criteria(driver, input_data, building_codes)
-        change_items_per_page(driver)
-        auction_item = pd.DataFrame()
-        auction_item = navigate_pages(driver, auction_item)
-        auction_item = clean_table_data(auction_item)
-        auction_item["URL"] = auction_item.apply(create_url, axis=1)
-        driver.quit()
-        return auction_item
-    else:
-        return pd.DataFrame()
+# Streamlit 앱 실행
+def run_app():
+    st.title("법원 경매 물건 검색 및 데이터 추출")
 
-# Streamlit UI 설정
-st.title('법원 경매 검색')
-
-# 입력 폼
-with st.form(key='search_form'):
-    jiwon = st.selectbox('지원', [
-        '서울중앙지방법원', '서울동부지방법원', '서울서부지방법원'
-    ])
-    building = st.selectbox('건물 유형', [
-        "단독주택", "다가구주택", "다중주택", "아파트", 
-        "연립주택", "다세대주택", "기숙사", "빌라", 
-        "상가주택", "오피스텔", "주상복합"
-    ])
-    start_date = st.date_input('시작 날짜', value=datetime.today())
-    end_date = st.date_input('종료 날짜', value=datetime.today())
-    submit_button = st.form_submit_button(label='검색')
-
-# 검색 버튼 클릭 시
-if submit_button:
+    # 사용자 입력
     input_data = {
-        'jiwon': jiwon,
-        'building': building,
-        'start_date': start_date.strftime('%Y.%m.%d'),
-        'end_date': end_date.strftime('%Y.%m.%d')
+        'jiwon': st.text_input("지원 입력", value="서울중앙지방법원"),
+        'building': st.selectbox("건물 유형 선택", ["아파트", "다가구", "빌라", "상가"]),
+        'start_date': st.date_input("시작 날짜", value=datetime(2023, 1, 1)),
+        'end_date': st.date_input("종료 날짜", value=datetime(2023, 12, 31)),
     }
 
     building_codes = {
-        "단독주택": "00008020101",
-        "다가구주택": "00008020102",
-        "다중주택": "00008020103",
         "아파트": "00008020104",
-        "연립주택": "00008020105",
-        "다세대주택": "00008020106",
-        "기숙사": "00008020107",
-        "빌라": "00008020108",
-        "상가주택": "00008020109",
-        "오피스텔": "00008020110",
-        "주상복합": "00008020111"
+        "다가구": "00008020102",
+        "빌라": "00008020103",
+        "상가": "00008020201",
     }
 
-    # 경매 데이터 수집
-    auction_data = main(input_data, building_codes)
-    if not auction_data.empty:
-        st.dataframe(auction_data)
-    else:
-        st.warning("검색 결과가 없습니다.")
+    if st.button("검색 시작"):
+        driver = setup_webdriver()
+        if driver:
+            navigate_to_search_page(driver)
+            set_search_criteria(driver, input_data, building_codes)
+            change_items_per_page(driver)
+            auction_item = pd.DataFrame()
+            auction_item = navigate_pages(driver, auction_item)
+            auction_item = clean_table_data(auction_item)
+            auction_item["링크"] = auction_item.apply(create_url, axis=1)
+            st.write(auction_item)
+
+if __name__ == "__main__":
+    run_app()
